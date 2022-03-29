@@ -3,56 +3,35 @@ const User = require('./models/user.model')
 const app = express()
 const mongoose = require('mongoose')
 const cors = require('cors')
-const jwt = require('jsonwebtoken')
+
 const bcrypt = require('bcryptjs')
+var crypto = require('crypto');
+
+function caesarCipher (str, key) {
+	return str.toUpperCase().replace(/[A-Z]/g, c => String.fromCharCode((c.charCodeAt(0)-65 + key ) % 26 + 65));
+}
+
+const pepper = "KZ6@85"
 
 app.use(cors())
 app.use(express.json())
 
-mongoose.connect('mongodb://localhost:27017/bug_tracker')
+mongoose.connect('mongodb://localhost:27017/salt_pepper')
 
 app.post('/api/register',async (req,res)=>{
-	const hash_password = await bcrypt.hash(req.body.password,10)
+	
+	salt = caesarCipher(req.body.password,4); // Caeser Cipher
+
+	password_salt_pepper = salt + req.body.password + pepper;
+	var md5hash = crypto.createHash('md5').update(password_salt_pepper).digest('hex');
+
 	try{
 		const user = await User.create({
-			name: req.body.name,
-			email: req.body.email,
-			password: hash_password
+			username: req.body.username,
+			password: md5hash,
+			salt : salt
 		})
-		res.json({status: 'ok'})
-	}
-	catch(err){
-		res.json({status: 'error',error : 'Duplicate email'})
-	}
-
-})
-
-app.post('/api/login',async (req,res)=>{
-	try{
-		const user = await User.findOne({
-			email: req.body.email,
-		})
-
-		if(!user)
-		{
-			return {status:'error',error : 'Invalid login'}
-		}
-
-		const isValid = await bcrypt.compare(req.body.password,user.password)
-		
-		if(isValid)
-		{
-			const token = jwt.sign({
-				name:user.name,
-				email:user.email
-			},
-			'secret123')
-
-			res.json({status:'ok',user:token})
-		}
-
-		else
-		res.json({status:'error',user:false})
+		res.json({status: 'Created', data : user})
 	}
 	catch(err){
 		res.json({status: 'error',error : err})
@@ -60,20 +39,34 @@ app.post('/api/login',async (req,res)=>{
 
 })
 
-app.get('/api/checkjwt',async (req,res)=>{
-	const token = req.headers['x-access-token']
-
+app.post('/api/login',async (req,res)=>{
 	try{
-		const decoded = jwt.verify(token,'secret123')
-		const email = decoded.email
-		res.json({status: 'ok',email : email})
+		const users = await User.find()
+
+		for(var i in users)
+		{	
+			if(users[i].username === req.body.username)
+			{
+				salt = caesarCipher(req.body.password,4) // Caeser Cipher
+				password_salt_pepper = salt + req.body.password + pepper;
+				var md5hash = crypto.createHash('md5').update(password_salt_pepper).digest('hex');
+				console.log(md5hash);
+				if(md5hash === users[i].password)
+				{
+					res.json({status: 'Logged in'})
+					return;
+				}
+			}
+		}
+		res.json({status: 'Invalid Auth'})
+
 	}
 	catch(err){
-		console.log(err);
-		res.json({status: 'error',error : 'invalid token'})
+		res.json({status: 'error',error : err})
 	}
 
 })
+
 
 app.listen(5000,()=>{
 	console.log("Server Started at port :",5000);
